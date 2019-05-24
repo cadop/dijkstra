@@ -3,7 +3,7 @@ import scipy
 import os
 import time
 import multiprocessing
-from scipy.sparse import csgraph
+from scipy.sparse import csgraph,csr_matrix
 
 import dijkstra_mp64
 
@@ -15,13 +15,18 @@ def dijkstra_MP_test():
     os.chdir( '..' )
     os.chdir( 'data_examples' )
     dataset = scipy.sparse.load_npz('csr_sparse_9kx9k.npz')
-
+    
     start_time = time.time()
+    dataFlat = dataset.reshape( ( np.shape(dataset)[0]*np.shape(dataset)[1], ) )
+    
+    # return
     #set number of processors to use
-    nprocs = 10
+    nprocs = 20
+
     DST,PR = dijkstra_mp64.multiSearch(dataset,nprocs)
     print("MultiProc ",nprocs," Time:",time.time()-start_time)
 
+    # return
     #run a single core version to compare
     start_time = time.time()
     

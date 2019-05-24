@@ -6,10 +6,10 @@ import time
 import multiprocessing
 from multiprocessing.sharedctypes import RawArray
 import math
-from scipy.sparse import csgraph
+from scipy.sparse import csgraph,csr_matrix
 import ctypes 
 
-def sharedSearch_D(indexList,dataset,shared_prd,shared_dist,idx,arrPos):
+def sharedSearch_D(indexList,dataset,shared_prd,shared_dist,idx,arrPos,sharedCSR,datashape):
     """
     Calculates the shortest path using scipy Dijkstra.  Saves the results to a shared memory array. 
     
@@ -28,22 +28,36 @@ def sharedSearch_D(indexList,dataset,shared_prd,shared_dist,idx,arrPos):
         
     shared_dist: A shared memory Raw array used to store the distances
         type: multiprocessing.sharedctypes.RawArray
-        length: length of the resulting dataset, given by input arrPos
+        length: length of the resulting dataset, given by input arrPos    
+        
+    sharedCSR: An array of shared memory Raw arrays used to store the parts
+    of the CSR matrix and then used to be reconstructed
+        type: multiprocessing.sharedctypes.RawArray
+        length: 3 arrays, one each for data, indices, indptr
+    
+    datashape: The shape of the original data so the csr matrix can be reconstructed
+        type: np.shape()
         
     Returns
     
     Does not return anything.  Stores all results directly in shared memory array
     
     """
-    
     #create array of index list to be calculated
     indexList = range(indexList[0],indexList[1])
 
     #load the shared array
-    X_np = np.frombuffer(shared_prd, dtype='short')
+    X_np = np.frombuffer(shared_prd, dtype='int')
     Y_np = np.frombuffer(shared_dist, dtype=np.float64)
+    
+    #load the shared csr data and reconstruct it
+    data = np.frombuffer(sharedCSR[0], dtype=np.float64)
+    indices = np.frombuffer(sharedCSR[1], dtype='int')
+    indptr = np.frombuffer(sharedCSR[2], dtype='int')
+    reconCSR = csr_matrix((data, indices, indptr), shape=(datashape))
+
     #calculate the shortest path
-    distances, predecessors = csgraph.shortest_path(dataset,method='D',indices=indexList,directed=True, return_predecessors = True)  
+    distances, predecessors = csgraph.shortest_path(reconCSR,method='D',indices=indexList,directed=True, return_predecessors = True)  
 
     pr_flat = predecessors.flatten()
     dst_flat = distances.flatten()
@@ -55,7 +69,9 @@ def sharedSearch_D(indexList,dataset,shared_prd,shared_dist,idx,arrPos):
         
 def multiSearch(dataset,nprocs):
     """
-    Calculates the shortest path using scipy Dijkstra.  Saves the results to a shared memory array. 
+    Calculates the shortest path using scipy Dijkstra.  
+    Saves the results to a shared memory array. 
+    Breaks up a CSR matrix, stores into shared memory, and reconstructs in each process. 
     
     Input
     
@@ -79,15 +95,32 @@ def multiSearch(dataset,nprocs):
     """
     singleArr = True
     #create an empty array    
-    X_shape = np.shape(dataset)
-    X_size = X_shape[0] * X_shape[1]
+    datashape = np.shape(dataset)
+    X_size = datashape[0] * datashape[1]
 
-    #Create a shared array
-    shared_prd = RawArray('h', X_size) 
+    #Create a shared array to store results
+    shared_prd = RawArray('i', X_size) 
     shared_dist = RawArray('d', X_size) 
 
+    #create shared arrays of the data making up the CSR matrix
+    data_array = dataset.data
+    indices_array = dataset.indices
+    indptr_array = dataset.indptr
+    data_size,indices_size,indptr_size = np.size(data_array),np.size(indices_array),np.size(indptr_array)
+    shared_data = RawArray('d', data_size) 
+    shared_indices = RawArray('i', indices_size) 
+    shared_indptr = RawArray('i', indptr_size) 
+    
+    #store the shared array objects in an array to pass to each process 
+    shared_csr = [shared_data,shared_indices,shared_indptr]
+    #put data into the shared data arrays
+    shared_data[:] = data_array
+    shared_indices[:] = indices_array
+    shared_indptr[:] = indptr_array
+    
+    
     #divide work 
-    chunk_calc = int( X_shape[0] / float(nprocs) )
+    chunk_calc = int( datashape[0] / float(nprocs) )
     arrStartPos,arrEndPos= 0,0
     
     #array to store processes
@@ -105,11 +138,11 @@ def multiSearch(dataset,nprocs):
         
         arrEndPos = arrEndPos + datalen
         arrPos = [arrStartPos,arrEndPos]
-
+        
         #Start the process
         ptemp=multiprocessing.Process(
                                         target=sharedSearch_D, 
-                                        args=(indexList,dataset,shared_prd,shared_dist,i,arrPos)
+                                        args=(indexList,None,shared_prd,shared_dist,i,arrPos,shared_csr,datashape)
                                      )
         ptemp.daemon=True
         ptemp.start()
@@ -121,9 +154,9 @@ def multiSearch(dataset,nprocs):
     #Join the processes back together
     for ptemp in procs:
         ptemp.join()
-    
-    X_np = np.frombuffer(shared_prd, dtype='short').reshape(X_shape)
-    Y_np = np.frombuffer(shared_dist, dtype=np.float64).reshape(X_shape)
+        
+    X_np = np.frombuffer(shared_prd, dtype='i').reshape(datashape)
+    Y_np = np.frombuffer(shared_dist, dtype=np.float64).reshape(datashape)
     
     return Y_np,X_np
         
