@@ -8,8 +8,11 @@ Scipy is a commonly used package and library with some good optimizations.  Howe
 
 ### Requirements
 Python 64 bit (tested on 2.7 or 3.7)
+
 Numpy
+
 Scipy
+
 Windows 10
 
 ### Example
