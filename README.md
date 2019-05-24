@@ -7,13 +7,10 @@ With that said, contributions, ideas, or advice is welcome.
 Scipy is a commonly used package and library with some good optimizations.  However, the shortest_path methods are not too fast.  Since code I have been working on interfaces with some Windows only applications, many of the optimized graph toolkits are not available, or are prohibitively difficult to install for the average user.  This code is meant to try and improve some performance by using the python multiprocessing module.  In the few cases we are using it, it seems to provide some tangible benefit, with the single core method running in 30 seconds, and the multiprocessing in 3 seconds.  
 
 ### Requirements
-Python 64 bit (tested on 2.7 or 3.7)
-
-Numpy
-
-Scipy
-
-Windows 10
+  Python 64 bit (tested on 2.7 or 3.7)  
+  Numpy  
+  Scipy  
+  Windows 10  
 
 ### Example
 Run the example code provided as run_search_examp.py in the code folder. 
