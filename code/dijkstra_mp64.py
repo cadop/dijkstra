@@ -1,0 +1,131 @@
+import numpy as np
+import scipy
+import os
+import sys
+import time
+import multiprocessing
+from multiprocessing.sharedctypes import RawArray
+import math
+from scipy.sparse import csgraph
+import ctypes 
+
+def sharedSearch_D(indexList,dataset,shared_prd,shared_dist,idx,arrPos):
+    """
+    Calculates the shortest path using scipy Dijkstra.  Saves the results to a shared memory array. 
+    
+    Input
+    
+    indexList: used to create a range of indices to calculate shortest path on
+        type: [int,int] 
+        
+    dataset: data used for shortest path.  in the multiprocessing setup this should be as lightweight as possible
+    as it is passed to each process.  Typically a scipy CSR matrix
+        type: scipy.csr
+        
+    shared_prd: A shared memory Raw array used to store the predecessors
+        type: multiprocessing.sharedctypes.RawArray
+        length: length of the resulting dataset, given by input arrPos
+        
+    shared_dist: A shared memory Raw array used to store the distances
+        type: multiprocessing.sharedctypes.RawArray
+        length: length of the resulting dataset, given by input arrPos
+        
+    Returns
+    
+    Does not return anything.  Stores all results directly in shared memory array
+    
+    """
+    
+    #create array of index list to be calculated
+    indexList = range(indexList[0],indexList[1])
+
+    #load the shared array
+    X_np = np.frombuffer(shared_prd, dtype='short')
+    Y_np = np.frombuffer(shared_dist, dtype=np.float64)
+    #calculate the shortest path
+    distances, predecessors = csgraph.shortest_path(dataset,method='D',indices=indexList,directed=True, return_predecessors = True)  
+
+    pr_flat = predecessors.flatten()
+    dst_flat = distances.flatten()
+    
+    #put results into shared array 
+    X_np[arrPos[0]:arrPos[1]] = pr_flat
+    Y_np[arrPos[0]:arrPos[1]] = dst_flat
+        
+        
+def multiSearch(dataset,nprocs):
+    """
+    Calculates the shortest path using scipy Dijkstra.  Saves the results to a shared memory array. 
+    
+    Input
+    
+    dataset: data used for shortest path.  in the multiprocessing setup this should be as lightweight as possible
+    as it is passed to each process.  Typically a scipy CSR matrix
+        type: scipy.csr
+        
+    nprocs: number of processors to use in the multiprocessing distribution.  The index lists used 
+    by dijkstra are split among this number
+        type: int
+               
+    Returns
+    
+    Y_np: The distances from scipy shortest_path
+        type: numpy array
+        shape: same shape as the dense dataset
+    X_np: The predecessors from scipy shortest_path
+        type: numpy array
+        shape: same shape as the dense dataset
+        
+    """
+    singleArr = True
+    #create an empty array    
+    X_shape = np.shape(dataset)
+    X_size = X_shape[0] * X_shape[1]
+
+    #Create a shared array
+    shared_prd = RawArray('h', X_size) 
+    shared_dist = RawArray('d', X_size) 
+
+    #divide work 
+    chunk_calc = int( X_shape[0] / float(nprocs) )
+    arrStartPos,arrEndPos= 0,0
+    
+    #array to store processes
+    procs=[]    
+    for i in range(nprocs):
+        #define the section to work on
+        startIDX=i*chunk_calc
+        endIDX=(i+1)*chunk_calc
+        if i==nprocs-1:
+            endIDX=np.shape(dataset)[0]
+
+        indexList = [startIDX,endIDX]
+        #len of flattened data set that will be calculated by search 
+        datalen = np.shape(dataset[startIDX:endIDX])[0] * np.shape(dataset[startIDX:endIDX])[1] 
+        
+        arrEndPos = arrEndPos + datalen
+        arrPos = [arrStartPos,arrEndPos]
+
+        #Start the process
+        ptemp=multiprocessing.Process(
+                                        target=sharedSearch_D, 
+                                        args=(indexList,dataset,shared_prd,shared_dist,i,arrPos)
+                                     )
+        ptemp.daemon=True
+        ptemp.start()
+        procs.append(ptemp)
+        
+        #set the position in the flattened array
+        arrStartPos+=datalen
+
+    #Join the processes back together
+    for ptemp in procs:
+        ptemp.join()
+    
+    X_np = np.frombuffer(shared_prd, dtype='short').reshape(X_shape)
+    Y_np = np.frombuffer(shared_dist, dtype=np.float64).reshape(X_shape)
+    
+    return Y_np,X_np
+        
+if __name__ == '__main__':
+    multiprocessing.freeze_support()
