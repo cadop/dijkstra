@@ -1,6 +1,6 @@
 # Multiprocessing Dijkstra Scipy
 
-This is not fully testing, and uses shared memory, so please be careful.  
+This is not fully testing, and uses shared memory, so please be careful.  The example run script does multiprocessing first, then uses the regular dijkstra and compares if the results are the same, so this is a simple check on your dataset. 
 With that said, contributions, ideas, or advice is welcome.  
 
 ## Overview
