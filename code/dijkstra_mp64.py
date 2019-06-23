@@ -67,7 +67,7 @@ def sharedSearch_D(indexList,dataset,shared_prd,shared_dist,idx,arrPos,sharedCSR
     Y_np[arrPos[0]:arrPos[1]] = dst_flat
         
         
-def multiSearch(dataset,nprocs):
+def multiSearch(dataset,nprocs,returnShared=False):
     """
     Calculates the shortest path using scipy Dijkstra.  
     Saves the results to a shared memory array. 
@@ -154,6 +154,10 @@ def multiSearch(dataset,nprocs):
     #Join the processes back together
     for ptemp in procs:
         ptemp.join()
+        
+    # if the flag is set to retured the shared memory     
+    if returnShared == True:    
+        return shared_dist,shared_prd
         
     X_np = np.frombuffer(shared_prd, dtype='i').reshape(datashape)
     Y_np = np.frombuffer(shared_dist, dtype=np.float64).reshape(datashape)
